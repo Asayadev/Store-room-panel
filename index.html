@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover">
+    <title>ShopSwift Pro - Complete Store Management Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.7.14/dist/vue.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        .toast {
+            position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+            z-index: 1000; background: #1e293b; color: white; padding: 12px 20px;
+            border-radius: 60px; font-size: 13px; opacity: 0;
+            transition: opacity 0.3s; pointer-events: none; white-space: nowrap;
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.2);
+        }
+        .toast.show { opacity: 1; }
+        @media (max-width: 640px) { .toast { white-space: normal; width: 85%; text-align: center; font-size: 12px; bottom: 70px; } }
+        
+        .loading-spin { display: inline-block; width: 20px; height: 20px; border: 2px solid #e2e8f0; border-top: 2px solid #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        @media (max-width: 768px) {
+            .bottom-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; background: rgba(255,255,255,0.96); backdrop-filter: blur(8px); justify-content: space-around; padding: 8px 12px 12px; border-top: 1px solid #eef2ff; z-index: 40; box-shadow: 0 -2px 10px rgba(0,0,0,0.03); }
+            .main-padding { padding-bottom: 72px; }
+            .product-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+            .stats-row { flex-direction: column; gap: 10px; }
+        }
+        @media (min-width: 769px) { .bottom-nav { display: none; } }
+        
+        .bottom-nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: #64748b; padding: 5px 12px; border-radius: 30px; transition: all 0.2s; }
+        .bottom-nav-item.active { color: #3b82f6; background: #eff6ff; font-weight: 600; }
+        .bottom-nav-item i { font-size: 20px; }
+        
+        .product-card { transition: all 0.2s ease; border: 1px solid #f0f2f5; background: white; }
+        .product-card:hover { transform: translateY(-3px); box-shadow: 0 12px 20px -12px rgba(0,0,0,0.15); }
+        .status-pending { background: #fef9e3; color: #ca8a04; }
+        .status-confirmed { background: #e0f2fe; color: #0284c7; }
+        .status-shipped { background: #ede9fe; color: #6d28d9; }
+        .status-delivered { background: #dcfce7; color: #15803d; }
+        .status-rejected { background: #fee2e2; color: #b91c1c; }
+        .progress-bar { transition: width 0.6s cubic-bezier(0.2, 0.9, 0.4, 1.1); }
+        .order-card { border-left-width: 4px; transition: all 0.15s; }
+        
+        .modal-enter-active, .modal-leave-active { transition: opacity 0.2s; }
+        .modal-enter, .modal-leave-to { opacity: 0; }
+
+        @media print {
+            body * { visibility: hidden !important; }
+            #invoice-print-area, #invoice-print-area * { visibility: visible !important; }
+            #invoice-print-area {
+                position: fixed !important;
+                left: 0 !important; top: 0 !important;
+                width: 100% !important;
+                background: white !important;
+                z-index: 99999 !important;
+                padding: 24px !important;
+            }
+        }
+
+        .status-card-pending { background: linear-gradient(135deg, #fefce8, #fef3c7); border-left: 4px solid #f59e0b; }
+        .status-card-confirmed { background: linear-gradient(135deg, #eff6ff, #dbeafe); border-left: 4px solid #3b82f6; }
+        .status-card-shipped { background: linear-gradient(135deg, #f5f3ff, #ede9fe); border-left: 4px solid #8b5cf6; }
+        .status-card-delivered { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border-left: 4px solid #22c55e; }
+
+        .invoice-modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+            z-index: 9999; display: flex; align-items: center; justify-content: center;
+            padding: 16px;
+        }
+        .invoice-modal-box {
+            background: white; border-radius: 16px; width: 100%; max-width: 520px;
+            max-height: 90vh; overflow-y: auto;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.35);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-gray-100">
+
+<div id="toast" class="toast"><i class="fas fa-circle-info mr-2 text-sky-300"></i> <span id="toastMsg">Updated</span></div>
+
+<div id="invoice-print-area" style="display:none;"></div>
+
+<div id="app">
+    <div v-if="globalLoading" class="fixed inset-0 bg-white/70 backdrop-blur-sm flex items-center justify-center z-50">
+        <div class="bg-white p-5 rounded-2xl shadow-xl text-center"><div class="loading-spin mx-auto mb-2"></div><p class="text-xs font-semibold text-gray-600">Syncing...</p></div>
+    </div>
+
+    <div v-if="showBlockedModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-[999] p-4">
+        <div class="bg-white rounded-2xl max-w-sm w-full shadow-2xl overflow-hidden">
+            <div class="bg-red-600 px-6 py-5 text-center">
+                <div class="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <i class="fas fa-ban text-white text-3xl"></i>
+                </div>
+                <h2 class="text-white text-xl font-black">Store Blocked!</h2>
+                <p class="text-red-100 text-xs mt-1">Admin ne aapka access band kar diya hai</p>
+            </div>
+            <div class="p-6 text-center space-y-4">
+                <div class="bg-red-50 border border-red-100 rounded-xl p-4">
+                    <p class="text-gray-700 text-sm font-semibold">🚫 Aapka store Admin ne block kar diya hai.</p>
+                    <p class="text-gray-500 text-xs mt-1">Zyada jaankari ke liye Admin se contact karein.</p>
+                </div>
+                <button @click="exitApp" class="w-full bg-red-600 hover:bg-red-700 active:scale-95 text-white font-black py-3 rounded-xl text-sm transition-all shadow-md">
+                    <i class="fas fa-times-circle mr-2"></i> OK, Exit
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div v-if="showLoginModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl transform transition-all">
+            <div class="flex items-center gap-2 border-b pb-3 mb-4">
+                <i class="fas fa-store text-2xl text-indigo-600"></i>
+                <h3 class="text-xl font-bold text-gray-800">Shopkeeper Login</h3>
+            </div>
+            <div class="space-y-4">
+                <div><label class="block text-xs font-bold text-gray-700 mb-1">🏪 Shop Name / Username</label><input type="text" v-model="loginForm.shopName" placeholder="e.g., Radha Electronics" class="w-full border border-gray-300 p-3 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></div>
+                <div><label class="block text-xs font-bold text-gray-700 mb-1">📞 Mobile Number</label><input type="tel" v-model="loginForm.mobile" placeholder="10 digit mobile" class="w-full border border-gray-300 p-3 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></div>
+                <button @click="shopkeeperLogin" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold transition shadow-md"><i class="fas fa-arrow-right-to-bracket mr-2"></i> Enter Store Room</button>
+            </div>
+            <p class="text-[10px] text-gray-400 text-center mt-5">* Secure access: manage products, orders & track analytics</p>
+        </div>
+    </div>
+
+    <div v-if="showInvoiceModal && selectedOrder" class="invoice-modal-overlay" @click.self="closeInvoice">
+        <div class="invoice-modal-box">
+            <div class="flex justify-between items-center p-4 border-b bg-indigo-600 rounded-t-2xl">
+                <h3 class="text-white font-bold text-base"><i class="fas fa-file-invoice mr-2"></i>Invoice</h3>
+                <div class="flex gap-2">
+                    <button @click="printInvoice" class="bg-white text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-50 transition"><i class="fas fa-print mr-1"></i>Print</button>
+                    <button @click="closeInvoice" class="bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-400 transition"><i class="fas fa-times mr-1"></i>Close</button>
+                </div>
+            </div>
+
+            <div class="p-5" id="invoice-content">
+                <div class="text-center border-b pb-4 mb-4">
+                    <div class="text-xl font-black text-indigo-700">{{ loggedInShopkeeper.shopName }}</div>
+                    <div class="text-xs text-gray-500">📞 {{ loggedInShopkeeper.mobile }}</div>
+                    <div class="text-[10px] text-gray-400 mt-1">ShopSwift Pro — Store Invoice</div>
+                </div>
+
+                <div class="flex justify-between text-xs mb-4">
+                    <div>
+                        <div class="font-bold text-gray-700">Invoice #</div>
+                        <div class="font-mono text-indigo-600 font-bold">#{{ selectedOrder.id.slice(-8).toUpperCase() }}</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="font-bold text-gray-700">Date</div>
+                        <div class="text-gray-600">{{ formatDate(selectedOrder.date) }}</div>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 rounded-xl p-3 mb-4 text-xs">
+                    <div class="font-bold text-gray-700 mb-2"><i class="fas fa-user text-indigo-400 mr-1"></i>Customer Details</div>
+                    <div class="grid grid-cols-1 gap-1.5">
+                        <div><span class="text-gray-500">Name:</span> <span class="font-semibold">{{ selectedOrder.customerName || 'N/A' }}</span></div>
+                        <div><span class="text-gray-500">Phone:</span> <span class="font-semibold">{{ selectedOrder.customerPhone || 'N/A' }}</span></div>
+                        <div><span class="text-gray-500">Address:</span> <span class="font-semibold">{{ selectedOrder.customerAddress || 'N/A' }}</span></div>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <div class="font-bold text-xs text-gray-700 mb-2"><i class="fas fa-box text-indigo-400 mr-1"></i>Order Items</div>
+                    <table class="w-full text-xs border-collapse">
+                        <thead>
+                            <tr class="bg-indigo-50 text-indigo-700">
+                                <th class="text-left p-2 rounded-tl-lg font-bold">Product</th>
+                                <th class="text-center p-2 font-bold">Qty</th>
+                                <th class="text-right p-2 font-bold">Price</th>
+                                <th class="text-right p-2 rounded-tr-lg font-bold">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="item in selectedOrder.items" :key="item.id" class="border-b border-gray-100">
+                                <td class="p-2 font-medium text-gray-800">{{ item.name }}</td>
+                                <td class="p-2 text-center text-gray-600">{{ item.quantity }}</td>
+                                <td class="p-2 text-right text-gray-600">₹{{ Number(item.price).toFixed(2) }}</td>
+                                <td class="p-2 text-right font-bold text-indigo-700">₹{{ (item.price * item.quantity).toFixed(2) }}</td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr class="bg-indigo-600 text-white">
+                                <td colspan="3" class="p-2 font-bold rounded-bl-lg">Grand Total</td>
+                                <td class="p-2 text-right font-black text-lg rounded-br-lg">₹{{ Number(selectedOrder.total).toFixed(2) }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <div class="flex justify-between items-center text-xs mb-4">
+                    <span class="text-gray-500 font-medium">Order Status:</span>
+                    <span class="font-bold px-3 py-1 rounded-full" :class="getStatusBadgeClass(selectedOrder.status)">{{ getStatusText(selectedOrder.status) }}</span>
+                </div>
+
+                <div class="border-t pt-4 flex flex-col items-center">
+                    <div class="text-xs font-bold text-gray-600 mb-2"><i class="fas fa-qrcode mr-1 text-indigo-400"></i>Customer QR Code</div>
+                    <div id="invoice-qrcode" class="flex items-center justify-center"></div>
+                    <div class="text-[10px] text-gray-400 mt-1">{{ selectedOrder.customerName || 'Customer' }}</div>
+                </div>
+
+                <div class="text-center text-[10px] text-gray-400 mt-4 pt-3 border-t">
+                    Thank you for your order! 🛍️<br>ShopSwift Pro — Store Management System
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div v-if="loggedInShopkeeper" class="max-w-5xl mx-auto min-h-screen flex flex-col">
+        
+        <header class="bg-white/90 backdrop-blur-md rounded-2xl shadow-md p-4 flex justify-between items-center mb-4 sticky top-2 z-30 mx-2">
+            <div class="flex items-center gap-3">
+                <div class="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center"><i class="fas fa-warehouse text-indigo-600 text-lg"></i></div>
+                <div>
+                    <h1 class="text-lg font-extrabold text-gray-800 tracking-tight">Store<span class="text-indigo-600">Master</span></h1>
+                    <p class="text-[11px] text-gray-500 font-medium">{{ loggedInShopkeeper.shopName }} | {{ loggedInShopkeeper.mobile }}</p>
+                </div>
+            </div>
+            <div class="flex gap-2 items-center">
+                <span class="text-[10px] bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-full font-bold">
+                    <i class="fas fa-boxes mr-1"></i> Items: {{ myProducts.length }}
+                </span>
+                <span class="text-[10px] bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-full font-bold flex items-center"><i class="fas fa-circle text-[6px] text-emerald-500 mr-1.5"></i> LIVE</span>
+                <button @click="logout" class="bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 rounded-xl text-sm transition"><i class="fas fa-sign-out-alt mr-1"></i> Exit</button>
+            </div>
+        </header>
+
+        <div class="bottom-nav">
+            <button @click="activeTab = 'products'" :class="{'active': activeTab=='products'}" class="bottom-nav-item"><i class="fas fa-box"></i><span>Products</span></button>
+            <button @click="activeTab = 'addProduct'; resetProductForm();" :class="{'active': activeTab=='addProduct'}" class="bottom-nav-item"><i class="fas fa-plus-circle"></i><span>Add</span></button>
+            <button @click="activeTab = 'orders'" :class="{'active': activeTab=='orders'}" class="bottom-nav-item"><i class="fas fa-clipboard-list"></i><span>Orders</span></button>
+            <button @click="activeTab = 'tracking'" :class="{'active': activeTab=='tracking'}" class="bottom-nav-item"><i class="fas fa-chart-simple"></i><span>Analytics</span></button>
+        </div>
+
+        <main class="flex-1 main-padding pb-20 px-2 md:px-1">
+            
+            <div v-if="activeTab == 'products'">
+                <div class="flex flex-wrap justify-between items-center mb-5 gap-3">
+                    <h2 class="text-xl font-bold text-gray-800"><i class="fas fa-cubes text-indigo-500 mr-2"></i>My Inventory</h2>
+                    <button @click="activeTab = 'addProduct'; resetProductForm();" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow hover:bg-indigo-700 transition"><i class="fas fa-plus mr-1"></i> New Product</button>
+                </div>
+                <div class="mb-4 relative"><i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i><input type="text" v-model="productSearch" placeholder="Search by name or category..." class="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white shadow-sm focus:ring-2 focus:ring-indigo-300"></div>
+                
+                <div class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-4 product-grid">
+                    <div v-for="product in filteredProducts" :key="product.id" class="rounded-xl overflow-hidden shadow-sm product-card relative flex flex-col justify-between">
+                        <div>
+                            <div class="h-32 bg-gray-50 flex items-center justify-center p-2 relative border-b">
+                                <span v-if="product.badge" class="absolute top-2 left-2 bg-orange-500 text-white text-[9px] font-bold px-2 py-0.5 rounded-full z-10">{{ product.badge }}</span>
+                                <img :src="product.image || 'https://placehold.co/150x150?text=📦'" class="h-28 object-contain" onerror="this.src='https://placehold.co/150x150?text=Product'">
+                            </div>
+                            <div class="p-3">
+                                <div class="flex justify-between items-start gap-1">
+                                    <h3 class="font-bold text-sm text-gray-800 truncate flex-1">{{ product.name }}</h3>
+                                    <button @click.stop="toggleStockStatus(product)" :class="(product.stockStatus === 'In stock' || !product.stockStatus) ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-600 border-red-300'" class="text-[9px] font-bold px-1.5 py-0.5 rounded-full border whitespace-nowrap">
+                                        {{ product.stockStatus || 'In stock' }} ⇄
+                                    </button>
+                                </div>
+                                <p class="text-[10px] text-gray-400 truncate mt-0.5">{{ product.category }}</p>
+                                
+                                <div v-if="product.sizes && product.sizes.length" class="flex flex-wrap gap-1 mt-1.5">
+                                    <span v-for="sz in product.sizes" :key="sz" class="bg-slate-100 text-slate-700 text-[8px] font-bold px-1 py-0.5 rounded border">
+                                        {{ sz }}
+                                    </span>
+                                </div>
+
+                                <div class="flex justify-between items-center mt-2">
+                                    <span class="text-base font-black text-indigo-700">₹{{ Number(product.price).toFixed(2) }}</span>
+                                    <span class="text-[9px] text-gray-400 line-through" v-if="product.originalPrice">₹{{ Number(product.originalPrice).toFixed(2) }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="p-3 pt-0 space-y-2">
+                            <button @click.stop="toggleStockStatus(product)" :class="(product.stockStatus === 'In stock' || !product.stockStatus) ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600'" class="w-full text-white text-[10px] font-bold py-1.5 rounded-lg transition flex items-center justify-center gap-1">
+                                <i :class="(product.stockStatus === 'In stock' || !product.stockStatus) ? 'fas fa-check-circle' : 'fas fa-times-circle'"></i>
+                                {{ (product.stockStatus === 'In stock' || !product.stockStatus) ? 'In Stock — Mark Out' : 'Out of Stock — Mark In' }}
+                            </button>
+                            <div class="flex gap-2">
+                                <button @click="openEditProduct(product)" class="flex-1 bg-amber-50 text-amber-700 text-[10px] font-bold py-1.5 rounded-lg hover:bg-amber-100 transition"><i class="fas fa-edit mr-1"></i> Edit</button>
+                                <button @click="deleteProduct(product.id)" class="flex-1 bg-red-50 text-red-600 text-[10px] font-bold py-1.5 rounded-lg hover:bg-red-100 transition"><i class="fas fa-trash-alt mr-1"></i> Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div v-if="filteredProducts.length === 0" class="bg-white rounded-2xl py-20 text-center shadow-sm"><i class="fas fa-store-slash text-4xl text-gray-300 mb-2"></i><p class="text-gray-400 text-sm">No products added. Click "Add Product".</p></div>
+            </div>
+
+            <div v-if="activeTab == 'addProduct'">
+                <div class="bg-white rounded-2xl shadow-xl p-6 max-w-lg mx-auto">
+                    <h2 class="text-xl font-bold mb-1 flex items-center gap-2"><i class="fas fa-pen-ruler text-indigo-500"></i>{{ editingProduct ? 'Edit Product' : 'Add New Product' }}</h2>
+                    <p class="text-xs text-gray-400 mb-5">{{ editingProduct ? 'Update product details & save' : 'Fill details to list in store' }}</p>
+                    <div class="space-y-4 text-sm">
+                        <div><label class="block font-semibold text-gray-700 mb-1">Product Title *</label><input v-model="productForm.name" type="text" class="w-full border p-3 rounded-xl focus:ring-2 focus:ring-indigo-400" placeholder="iPhone 15, Kurta Set..."></div>
+                        <div class="grid grid-cols-2 gap-3"><div><label class="block font-semibold">Selling Price (₹) *</label><input v-model.number="productForm.price" type="number" class="w-full border p-3 rounded-xl"></div><div><label class="block font-semibold text-gray-500">MRP (Original)</label><input v-model.number="productForm.originalPrice" type="number" class="w-full border p-3 rounded-xl"></div></div>
+                        <div class="grid grid-cols-2 gap-3"><div><label class="block font-semibold">Category *</label><select v-model="productForm.category" class="w-full border p-3 rounded-xl bg-white"><option disabled value="">Select</option><option v-for="cat in categories" :value="cat">{{ cat }}</option></select></div><div><label class="block font-semibold">Stock Status</label><select v-model="productForm.stockStatus" class="w-full border p-3 rounded-xl"><option value="In stock">✅ In Stock</option><option value="Out of stock">❌ Out of Stock</option></select></div></div>
+                        <div><label class="block font-semibold">Badge (Trending/Bestseller)</label><input v-model="productForm.badge" placeholder="e.g., Bestseller" class="w-full border p-3 rounded-xl"></div>
+                        
+                        <div class="bg-slate-50 p-4 border border-dashed border-slate-300 rounded-xl">
+                            <label class="block font-semibold text-slate-700 mb-1">📸 Product Images (Multiple Upload)</label>
+                            <input type="file" id="multipleImagesInput" accept="image/*" multiple @change="uploadMultipleImagesToDrive" class="text-xs text-gray-500 w-full mt-1">
+                            
+                            <div v-if="multipleImagesUploading" class="text-xs text-indigo-600 font-bold mt-2 flex items-center gap-1.5">
+                                <span class="loading-spin" style="width: 12px; height: 12px;"></span> Uploading multi-images...
+                            </div>
+
+                            <div v-if="productForm.images && productForm.images.length" class="grid grid-cols-4 gap-2 mt-3">
+                                <div v-for="(img, index) in productForm.images" :key="index" class="relative group border rounded p-1 bg-white">
+                                    <img :src="img" class="h-14 w-full object-contain rounded">
+                                    <button type="button" @click="removeUploadedImage(index)" class="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center font-bold shadow">&times;</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block font-semibold text-gray-700 mb-2">📐 Select Available Sizes</label>
+                            <div class="flex flex-wrap gap-1.5">
+                                <button type="button" v-for="size in availableSizes" :key="size"
+                                        @click="toggleSizeSelection(size)"
+                                        :class="productForm.sizes.includes(size) ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-gray-100 text-gray-700 border-gray-200'"
+                                        class="px-2.5 py-1 text-xs font-semibold rounded-lg border transition">
+                                    {{ size }}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-50 p-4 border border-dashed border-slate-300 rounded-xl">
+                            <label class="block font-semibold text-slate-700 mb-1">🖼️ Size Chart Image</label>
+                            <input type="file" id="sizeChartInput" accept="image/*" @change="uploadSizeChartToDrive" class="text-xs text-gray-500 w-full mt-1">
+                            
+                            <div v-if="sizeChartUploading" class="text-xs text-amber-600 font-bold mt-2 flex items-center gap-1.5">
+                                <span class="loading-spin" style="width: 12px; height: 12px;"></span> Uploading size chart...
+                            </div>
+
+                            <div v-if="productForm.sizeChart" class="mt-3 relative inline-block border rounded p-1 bg-white">
+                                <img :src="productForm.sizeChart" class="h-20 object-contain rounded">
+                                <button type="button" @click="productForm.sizeChart = ''" class="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center font-bold shadow">&times;</button>
+                            </div>
+                        </div>
+
+                        <div><label class="block font-semibold">Short Description</label><textarea v-model="productForm.description" rows="2" class="w-full border p-3 rounded-xl" placeholder="Key features..."></textarea></div>
+                        <div class="flex gap-3"><button @click="saveProduct" class="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700"><i class="fas fa-save mr-1"></i> {{ editingProduct ? 'Update Product' : 'Publish Product' }}</button><button v-if="editingProduct" @click="cancelEdit" class="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-bold">Cancel</button></div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="activeTab == 'orders'">
+                <div class="flex items-center justify-between flex-wrap gap-2 mb-4">
+                    <h2 class="text-xl font-bold"><i class="fas fa-truck-fast text-indigo-500 mr-2"></i>Order History</h2>
+                    <div class="text-xs bg-white px-3 py-1.5 rounded-full shadow-sm">{{ myProductOrders.length }} orders</div>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+                    <div class="status-card-pending rounded-xl p-3 text-center shadow-sm">
+                        <div class="text-2xl font-black text-amber-600">{{ totalPending }}</div>
+                        <div class="text-[10px] font-bold text-amber-700 mt-0.5"><i class="fas fa-clock mr-1"></i>Pending</div>
+                    </div>
+                    <div class="status-card-confirmed rounded-xl p-3 text-center shadow-sm">
+                        <div class="text-2xl font-black text-blue-600">{{ totalConfirmed }}</div>
+                        <div class="text-[10px] font-bold text-blue-700 mt-0.5"><i class="fas fa-check mr-1"></i>Confirmed</div>
+                    </div>
+                    <div class="status-card-shipped rounded-xl p-3 text-center shadow-sm">
+                        <div class="text-2xl font-black text-purple-600">{{ totalShipped }}</div>
+                        <div class="text-[10px] font-bold text-purple-700 mt-0.5"><i class="fas fa-truck mr-1"></i>Shipping</div>
+                    </div>
+                    <div class="status-card-delivered rounded-xl p-3 text-center shadow-sm">
+                        <div class="text-2xl font-black text-green-600">{{ totalDelivered }}</div>
+                        <div class="text-[10px] font-bold text-green-700 mt-0.5"><i class="fas fa-circle-check mr-1"></i>Delivered</div>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <div v-for="order in myProductOrders" :key="order.id" class="bg-white rounded-xl shadow-md p-4 order-card transition-all" :class="getOrderBorderClass(order.status)">
+                        <div class="flex justify-between flex-wrap gap-2 items-start border-b pb-2">
+                            <div><span class="font-mono font-bold text-indigo-700">#{{ order.id.slice(-8).toUpperCase() }}</span><span class="text-[10px] text-gray-400 ml-2"><i class="far fa-calendar-alt mr-1"></i>{{ formatDate(order.date) }}</span></div>
+                            <span class="text-[10px] font-bold px-3 py-1 rounded-full" :class="getStatusBadgeClass(order.status)">{{ getStatusText(order.status) }}</span>
+                        </div>
+                        <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs">
+                            <div><i class="fas fa-user mr-1 text-gray-400"></i> <strong>{{ order.customerName || 'Customer' }}</strong> ({{ order.customerPhone || 'N/A' }})</div>
+                            <div><i class="fas fa-map-pin mr-1 text-gray-400"></i> {{ order.customerAddress || 'Address not provided' }}</div>
+                        </div>
+                        <div class="mt-3 bg-gray-50 p-2 rounded-lg">
+                            <p class="text-[10px] font-bold text-gray-600 mb-1">📦 Items (Your products only)</p>
+                            <div class="flex flex-wrap gap-2">
+                                <span v-for="item in order.items" v-if="isMyProduct(item.id)" class="bg-white border rounded-full px-2 py-1 text-[10px] shadow-sm"><span class="font-medium">{{ item.name }}</span> x{{ item.quantity }} = <span class="font-mono text-indigo-600">₹{{ (item.price * item.quantity).toFixed(2) }}</span></span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center mt-3 pt-2 border-t">
+                            <span class="text-xs text-gray-500">Order Total</span>
+                            <div class="flex items-center gap-2">
+                                <span class="font-extrabold text-indigo-700 text-lg">₹{{ Number(order.total).toFixed(2) }}</span>
+                                <button @click="openInvoice(order)" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1">
+                                    <i class="fas fa-file-invoice"></i> Invoice
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-if="myProductOrders.length === 0" class="bg-white rounded-2xl py-16 text-center text-gray-400"><i class="fas fa-receipt text-3xl mb-2 opacity-40"></i><p>No orders yet for your products.</p></div>
+                </div>
+            </div>
+
+            <div v-if="activeTab == 'tracking'">
+                <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-chart-line text-emerald-600"></i> Sales Performance</h2>
+                <p class="text-xs text-gray-500 mb-5">Real-time tracking: units sold, revenue & order progress</p>
+                
+                <div class="grid grid-cols-2 gap-4 mb-6">
+                    <div class="bg-gradient-to-br from-indigo-50 to-white p-4 rounded-2xl shadow-sm text-center"><span class="text-3xl font-black text-indigo-700">{{ totalMyProductsSold }}</span><p class="text-[11px] font-semibold text-gray-500">Total Units Sold</p></div>
+                    <div class="bg-gradient-to-br from-emerald-50 to-white p-4 rounded-2xl shadow-sm text-center"><span class="text-3xl font-black text-emerald-700">₹{{ totalMyProductsRevenue.toFixed(2) }}</span><p class="text-[11px] font-semibold text-gray-500">Total Revenue</p></div>
+                </div>
+
+                <div v-for="product in myProducts" :key="product.id" class="bg-white rounded-2xl shadow-md p-4 mb-5 transition hover:shadow-lg">
+                    <div class="flex gap-4 items-center">
+                        <img :src="product.image || 'https://placehold.co/70x70?text=📦'" class="w-16 h-16 object-contain bg-gray-50 rounded-xl p-1">
+                        <div class="flex-1"><div class="font-bold text-gray-800">{{ product.name }}</div><div class="text-[10px] text-gray-400">{{ product.category }}</div><div class="font-bold text-indigo-600 text-sm">₹{{ product.price }}</div></div>
+                        <div class="text-right"><div class="text-lg font-black">{{ getProductSoldQuantity(product.id) }}<span class="text-[9px] font-normal text-gray-400"> sold</span></div></div>
+                    </div>
+                    <div class="mt-3"><div class="flex justify-between text-[10px] font-medium"><span>📊 Fulfillment rate</span><span>{{ getProductOrderProgress(product.id) }}%</span></div><div class="w-full bg-gray-200 rounded-full h-2 mt-1"><div class="bg-indigo-500 progress-bar h-2 rounded-full" :style="{ width: getProductOrderProgress(product.id) + '%' }"></div></div><div class="flex justify-between mt-2 text-[10px] text-gray-500"><span><i class="fas fa-shopping-bag"></i> {{ getProductOrderCount(product.id) }} orders</span><span><i class="fas fa-check-circle"></i> {{ getProductDeliveredCount(product.id) }} delivered</span></div></div>
+                </div>
+                <div v-if="myProducts.length === 0" class="bg-white rounded-2xl py-16 text-center">Add products to view powerful analytics.</div>
+            </div>
+        </main>
+        <footer class="text-center text-[10px] text-gray-400 py-4 border-t bg-white mt-2">ShopSwift Pro — Complete Store Command Center</footer>
+    </div>
+</div>
+
+<script>
+const firebaseConfig = {
+    apiKey: "AIzaSyDbVF9_RqXDXdIASOy2WgbwSmwuiowu2Bg",
+    authDomain: "growthxpressx.firebaseapp.com",
+    databaseURL: "https://growthxpressx-default-rtdb.firebaseio.com",
+    projectId: "growthxpressx",
+    storageBucket: "growthxpressx.appspot.com",
+    messagingSenderId: "967008233535",
+    appId: "1:967008233535:android:ac720ab7c8f7b10bf4308a"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+new Vue({
+    el: '#app',
+    data: {
+        globalLoading: false,
+        multipleImagesUploading: false,
+        sizeChartUploading: false,
+        showLoginModal: true,
+        showBlockedModal: false,
+        loggedInShopkeeper: null,
+        activeTab: 'products',
+        productSearch: '',
+        categories: ['Electronics', 'Mobiles', 'Clothing', 'Footwear', 'Home & Kitchen', 'Beauty', 'Vegetables', 'Watches', 'Accessories'],
+        availableSizes: ['S', 'M', 'L', 'XL', 'XXL', '3XL', 'Free Size', '28', '30', '32', '34', '36', '38', '40'],
+        loginForm: { shopName: '', mobile: '' },
+        productForm: { id: null, name: '', price: '', originalPrice: '', image: '', images: [], sizes: [], sizeChart: '', description: '', category: '', badge: '', stockStatus: 'In stock' },
+        editingProduct: false,
+        allProducts: [],
+        allOrders: [],
+        showInvoiceModal: false,
+        selectedOrder: null,
+        scriptUrl: "https://script.google.com/macros/s/AKfycbzl16sL-vmJq-KIQh8yXPXwzDyhEArRUorinpTfrN6AronsDVbmT9tAzK3KFp4XpeMOtA/exec"
+    },
+    computed: {
+        myProducts() { 
+            if (!this.loggedInShopkeeper) return [];
+            return this.allProducts.filter(p => 
+                p.shopkeeperId === this.loggedInShopkeeper.id || 
+                p.shopkeeperName === this.loggedInShopkeeper.shopName
+            ); 
+        },
+        filteredProducts() {
+            if (!this.productSearch) return this.myProducts;
+            const s = this.productSearch.toLowerCase();
+            return this.myProducts.filter(p => p.name.toLowerCase().includes(s) || p.category?.toLowerCase().includes(s));
+        },
+        myProductOrders() {
+            if (!this.myProducts.length) return [];
+            const myIds = new Set(this.myProducts.map(p => p.id));
+            return [...this.allOrders].filter(o => o.items?.some(i => myIds.has(i.id))).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+        },
+        totalMyProductsSold() { let t=0; this.myProducts.forEach(p=>t+=this.getProductSoldQuantity(p.id)); return t; },
+        totalMyProductsRevenue() { let rev=0; this.myProducts.forEach(p=>rev+=this.getProductRevenue(p.id)); return rev; },
+        totalPending() { return this.myProductOrders.filter(o => o.status === 'pending').length; },
+        totalConfirmed() { return this.myProductOrders.filter(o => o.status === 'confirmed').length; },
+        totalShipped() { return this.myProductOrders.filter(o => o.status === 'shipped').length; },
+        totalDelivered() { return this.myProductOrders.filter(o => o.status === 'delivered').length; }
+    },
+    methods: {
+        showMessage(msg) { const toast=document.getElementById('toast'); document.getElementById('toastMsg').innerHTML=msg; toast.classList.add('show'); setTimeout(()=>toast.classList.remove('show'),2500); },
+        
+        // MULTIPLE IMAGES DRIVE UPLOAD
+        async uploadMultipleImagesToDrive(event) {
+            const files = Array.from(event.target.files);
+            if (!files.length) return;
+            this.multipleImagesUploading = true;
+            this.showMessage("⏳ Uploading images to Google Drive...");
+            
+            let count = 0;
+            for (let file of files) {
+                await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        const base64String = e.target.result.split(',')[1];
+                        try {
+                            const response = await fetch(this.scriptUrl, {
+                                method: 'POST',
+                                mode: 'cors',
+                                body: JSON.stringify({ base64: base64String, mimeType: file.type, fileName: file.name })
+                            });
+                            const result = await response.json();
+                            if (result.status === "success" || result.link) {
+                                this.productForm.images.push(result.link);
+                                // Set first image as standard main image if empty
+                                if (!this.productForm.image || this.productForm.image.includes('placehold.co')) {
+                                    this.productForm.image = result.link;
+                                }
+                                count++;
+                            }
+                        } catch (err) {
+                            console.error(err);
+                        }
+                        resolve();
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+            this.multipleImagesUploading = false;
+            this.showMessage(`✅ ${count} Images uploaded successfully!`);
+            document.getElementById('multipleImagesInput').value = '';
+        },
+        removeUploadedImage(index) {
+            this.productForm.images.splice(index, 1);
+            if(index === 0) {
+                this.productForm.image = this.productForm.images[0] || 'https://placehold.co/200x200?text=Product';
+            }
+        },
+
+        // TOGGLE SIZE BADGES
+        toggleSizeSelection(size) {
+            const idx = this.productForm.sizes.indexOf(size);
+            if (idx > -1) {
+                this.productForm.sizes.splice(idx, 1);
+            } else {
+                this.productForm.sizes.push(size);
+            }
+        },
+
+        // SIZE CHART DRIVE UPLOAD
+        async uploadSizeChartToDrive(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            this.sizeChartUploading = true;
+            this.showMessage("⏳ Uploading Size Chart to Drive...");
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const base64String = e.target.result.split(',')[1];
+                try {
+                    const response = await fetch(this.scriptUrl, {
+                        method: 'POST',
+                        mode: 'cors',
+                        body: JSON.stringify({ base64: base64String, mimeType: file.type, fileName: 'size_chart_' + file.name })
+                    });
+                    const result = await response.json();
+                    if (result.status === "success" || result.link) {
+                        this.productForm.sizeChart = result.link;
+                        this.showMessage("✅ Size chart uploaded successfully!");
+                    } else {
+                        this.showMessage("❌ Size chart upload failed.");
+                    }
+                } catch (err) {
+                    this.showMessage("⚠️ Delayed network upload setup verification.");
+                } finally {
+                    this.sizeChartUploading = false;
+                    document.getElementById('sizeChartInput').value = '';
+                }
+            };
+            reader.readAsDataURL(file);
+        },
+
+        async shopkeeperLogin() {
+            if(!this.loginForm.shopName.trim() || !this.loginForm.mobile.trim() || this.loginForm.mobile.length<10) { this.showMessage('❌ Valid shop name & mobile required'); return; }
+            const cleanShopName = this.loginForm.shopName.trim();
+            this.globalLoading = true;
+            try {
+                const shopSnap = await db.ref('shopkeepers').orderByChild('shopName').equalTo(cleanShopName).once('value');
+                const shopData = shopSnap.val();
+                if (shopData) {
+                    const existingEntry = Object.values(shopData)[0];
+                    if (existingEntry.blocked === true) {
+                        this.globalLoading = false;
+                        this.showBlockedModal = true;
+                        return;
+                    }
+                }
+
+                const shopkeeper = { 
+                    id: cleanShopName, 
+                    shopName: cleanShopName, 
+                    mobile: this.loginForm.mobile.trim(), 
+                    loginAt: new Date().toISOString() 
+                };
+
+                const safeKey = cleanShopName.replace(/[.#$[\]]/g, '_');
+                await db.ref('shopkeepers/' + safeKey).update({
+                    shopName: cleanShopName,
+                    mobile: this.loginForm.mobile.trim(),
+                    lastLogin: new Date().toISOString()
+                });
+
+                this.loggedInShopkeeper = shopkeeper;
+                localStorage.setItem('shopkeeper_pro', JSON.stringify(this.loggedInShopkeeper));
+                this.showLoginModal = false;
+                this.showMessage(`✅ Welcome ${cleanShopName}! Full control active.`);
+                this.startBlockWatcher(cleanShopName);
+                this.loadData();
+            } catch(e) {
+                this.showMessage('Login error: ' + e.message);
+            } finally {
+                this.globalLoading = false;
+            }
+        },
+        logout() { this.loggedInShopkeeper = null; localStorage.removeItem('shopkeeper_pro'); this.showLoginModal = true; this.activeTab='products'; this.stopBlockWatcher(); this.showMessage('Logged out.'); },
+
+        startBlockWatcher(shopName) {
+            this.stopBlockWatcher();
+            const safeKey = shopName.replace(/[.#$[\]]/g, '_');
+            this._blockWatcherRef = db.ref('shopkeepers/' + safeKey);
+            this._blockWatcherRef.on('value', snap => {
+                const data = snap.val();
+                if (data && data.blocked === true && this.loggedInShopkeeper) {
+                    this.loggedInShopkeeper = null;
+                    localStorage.removeItem('shopkeeper_pro');
+                    this.showLoginModal = false;
+                    this.activeTab = 'products';
+                    this.stopBlockWatcher();
+                    this.showBlockedModal = true;
+                }
+            });
+        },
+        stopBlockWatcher() {
+            if (this._blockWatcherRef) {
+                this._blockWatcherRef.off('value');
+                this._blockWatcherRef = null;
+            }
+        },
+        exitApp() {
+            window.close();
+            document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;font-family:Inter,sans-serif;background:#fee2e2;"><div style="background:white;padding:32px;border-radius:20px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.15);max-width:320px;"><div style="font-size:48px;margin-bottom:12px;">🚫</div><h2 style="color:#dc2626;font-size:18px;font-weight:900;margin:0 0 8px;">Store Blocked</h2><p style="color:#6b7280;font-size:13px;margin:0;">Aapka store Admin ne block kar diya hai. Kindly Admin se contact karein.</p></div></div>';
+        },
+        async loadProducts() { const snap = await db.ref('products').once('value'); const data=snap.val(); this.allProducts = data ? Object.keys(data).map(k=>({ id: k, ...data[k] })) : []; },
+        async loadOrders() { const snap = await db.ref('orders').once('value'); const data=snap.val(); this.allOrders = data ? Object.keys(data).map(k=>({ id: k, ...data[k] })) : []; },
+        async loadData() { this.globalLoading=true; await Promise.all([this.loadProducts(), this.loadOrders()]); this.globalLoading=false; },
+        
+        async toggleStockStatus(product) {
+            const newStatus = (product.stockStatus === 'In stock' || !product.stockStatus) ? 'Out of stock' : 'In stock';
+            try {
+                await db.ref(`products/${product.id}`).update({ stockStatus: newStatus });
+                this.showMessage(newStatus === 'In stock' ? '✅ ' + product.name + ' — In Stock ho gaya!' : '❌ ' + product.name + ' — Out of Stock ho gaya!');
+                await this.loadProducts();
+            } catch(e) { this.showMessage('Error: ' + e.message); }
+        },
+        openEditProduct(product) {
+            this.editingProduct = true;
+            this.productForm = { 
+                id: product.id, 
+                name: product.name, 
+                price: product.price, 
+                originalPrice: product.originalPrice || '', 
+                image: product.image || '', 
+                images: product.images || [], 
+                sizes: product.sizes || [], 
+                sizeChart: product.sizeChart || '', 
+                description: product.description || '', 
+                category: product.category, 
+                badge: product.badge || '', 
+                stockStatus: product.stockStatus || 'In stock' 
+            };
+            this.activeTab = 'addProduct';
+        },
+        cancelEdit() { this.resetProductForm(); this.activeTab = 'products'; },
+        resetProductForm() { this.productForm = { id: null, name: '', price: '', originalPrice: '', image: '', images: [], sizes: [], sizeChart: '', description: '', category: '', badge: '', stockStatus: 'In stock' }; this.editingProduct = false; },
+        
+        async saveProduct() {
+            if (!this.productForm.name || !this.productForm.price || !this.productForm.category) { this.showMessage('⚠️ Name, price & category required'); return; }
+            this.globalLoading = true;
+            try {
+                const payload = {
+                    name: this.productForm.name, 
+                    price: parseFloat(this.productForm.price), 
+                    originalPrice: this.productForm.originalPrice ? parseFloat(this.productForm.originalPrice) : null,
+                    image: this.productForm.image || 'https://placehold.co/200x200?text=Product', 
+                    images: this.productForm.images || [],
+                    sizes: this.productForm.sizes || [],
+                    sizeChart: this.productForm.sizeChart || '',
+                    description: this.productForm.description || '', 
+                    category: this.productForm.category,
+                    badge: this.productForm.badge || '', 
+                    stockStatus: this.productForm.stockStatus, 
+                    shopkeeperId: this.loggedInShopkeeper.id,
+                    shopkeeperName: this.loggedInShopkeeper.shopName, 
+                    updatedAt: new Date().toISOString()
+                };
+                if (this.editingProduct && this.productForm.id) {
+                    await db.ref(`products/${this.productForm.id}`).update(payload);
+                    this.showMessage('✏️ Product updated successfully!');
+                } else {
+                    payload.createdAt = new Date().toISOString();
+                    await db.ref('products').push(payload);
+                    this.showMessage('🚀 New product added!');
+                }
+                this.resetProductForm();
+                this.activeTab = 'products';
+                await this.loadProducts();
+            } catch(e) { this.showMessage('Error: '+e.message); } finally { this.globalLoading=false; }
+        },
+        
+        async deleteProduct(productId) {
+            if (!confirm('Permanently delete this product? This action cannot be undone.')) return;
+            this.globalLoading = true;
+            try { await db.ref(`products/${productId}`).remove(); this.showMessage('🗑️ Product deleted.'); await this.loadProducts(); } catch(e) { this.showMessage('Delete failed'); } finally { this.globalLoading=false; }
+        },
+
+        // === INVOICE METHODS ===
+        openInvoice(order) {
+            this.selectedOrder = order;
+            this.showInvoiceModal = true;
+            this.$nextTick(() => {
+                const qrContainer = document.getElementById('invoice-qrcode');
+                if (qrContainer) {
+                    qrContainer.innerHTML = '';
+                    new QRCode(qrContainer, {
+                        text: order.customerName || 'Customer',
+                        width: 120,
+                        height: 120,
+                        colorDark: '#3730a3',
+                        colorLight: '#ffffff',
+                        correctLevel: QRCode.CorrectLevel.H
+                    });
+                }
+            });
+        },
+        closeInvoice() {
+            this.showInvoiceModal = false;
+            this.selectedOrder = null;
+        },
+        printInvoice() {
+            const order = this.selectedOrder;
+            if (!order) return;
+
+            const qrData = encodeURIComponent(order.customerName || 'Customer');
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrData}&color=3730a3`;
+
+            let itemsHTML = '';
+            (order.items || []).forEach(item => {
+                itemsHTML += `
+                    <tr style="border-bottom:1px solid #f0f0f0;">
+                        <td style="padding:6px 8px;font-size:12px;">${item.name}</td>
+                        <td style="padding:6px 8px;text-align:center;font-size:12px;">${item.quantity}</td>
+                        <td style="padding:6px 8px;text-align:right;font-size:12px;">₹${Number(item.price).toFixed(2)}</td>
+                        <td style="padding:6px 8px;text-align:right;font-size:12px;font-weight:700;color:#4338ca;">₹${(item.price * item.quantity).toFixed(2)}</td>
+                    </tr>`;
+            });
+
+            const statusColors = { pending:'#ca8a04', confirmed:'#0284c7', shipped:'#6d28d9', delivered:'#15803d', rejected:'#b91c1c' };
+            const statusColor = statusColors[order.status] || '#64748b';
+
+            const printArea = document.getElementById('invoice-print-area');
+            printArea.innerHTML = `
+                <div style="max-width:500px;margin:0 auto;font-family:Inter,sans-serif;color:#1e293b;">
+                    <div style="text-align:center;border-bottom:2px solid #e0e7ff;padding-bottom:16px;margin-bottom:16px;">
+                        <div style="font-size:22px;font-weight:900;color:#4338ca;">${this.loggedInShopkeeper.shopName}</div>
+                        <div style="font-size:12px;color:#64748b;">📞 ${this.loggedInShopkeeper.mobile}</div>
+                        <div style="font-size:10px;color:#94a3b8;margin-top:4px;">ShopSwift Pro — Store Invoice</div>
+                    </div>
+
+                    <div style="display:flex;justify-content:space-between;margin-bottom:16px;font-size:12px;">
+                        <div><div style="font-weight:700;color:#374151;">Invoice #</div><div style="font-weight:900;color:#4338ca;font-family:monospace;">#${order.id.slice(-8).toUpperCase()}</div></div>
+                        <div style="text-align:right;"><div style="font-weight:700;color:#374151;">Date</div><div style="color:#64748b;">${this.formatDate(order.date)}</div></div>
+                    </div>
+
+                    <div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:16px;font-size:12px;">
+                        <div style="font-weight:700;margin-bottom:8px;color:#374151;">👤 Customer Details</div>
+                        <div><b>Name:</b> ${order.customerName || 'N/A'}</div>
+                        <div style="margin-top:4px;"><b>Phone:</b> ${order.customerPhone || 'N/A'}</div>
+                        <div style="margin-top:4px;"><b>Address:</b> ${order.customerAddress || 'N/A'}</div>
+                    </div>
+
+                    <div style="margin-bottom:16px;">
+                        <div style="font-weight:700;font-size:12px;color:#374151;margin-bottom:8px;">📦 Order Items</div>
+                        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                            <thead>
+                                <tr style="background:#eef2ff;color:#4338ca;">
+                                    <th style="padding:8px;text-align:left;border-radius:8px 0 0 0;font-weight:700;">Product</th>
+                                    <th style="padding:8px;text-align:center;font-weight:700;">Qty</th>
+                                    <th style="padding:8px;text-align:right;font-weight:700;">Price</th>
+                                    <th style="padding:8px;text-align:right;border-radius:0 8px 0 0;font-weight:700;">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>${itemsHTML}</tbody>
+                            <tfoot>
+                                <tr style="background:#4338ca;color:white;">
+                                    <td colspan="3" style="padding:8px;font-weight:700;border-radius:0 0 0 8px;">Grand Total</td>
+                                    <td style="padding:8px;text-align:right;font-weight:900;font-size:16px;border-radius:0 0 8px 0;">₹${Number(order.total).toFixed(2)}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;font-size:12px;">
+                        <span style="color:#64748b;font-weight:600;">Order Status:</span>
+                        <span style="font-weight:700;padding:4px 12px;border-radius:20px;background:${statusColor}20;color:${statusColor};">${this.getStatusText(order.status)}</span>
+                    </div>
+
+                    <div style="border-top:1px solid #e0e7ff;padding-top:16px;text-align:center;">
+                        <div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:8px;">🔲 Customer QR Code</div>
+                        <img src="${qrUrl}" width="120" height="120" style="display:block;margin:0 auto;" alt="QR Code">
+                        <div style="font-size:10px;color:#94a3b8;margin-top:4px;">${order.customerName || 'Customer'}</div>
+                    </div>
+
+                    <div style="text-align:center;font-size:10px;color:#94a3b8;margin-top:16px;padding-top:12px;border-top:1px solid #f0f0f0;">
+                        Thank you for your order! 🛍️<br>ShopSwift Pro — Store Management System
+                    </div>
+                </div>`;
+
+            printArea.style.display = 'block';
+            setTimeout(() => {
+                window.print();
+                printArea.style.display = 'none';
+            }, 300);
+        },
+
+        isMyProduct(pid) { return this.myProducts.some(p=>p.id===pid); },
+        getProductOrderCount(pid) { let cnt=0; this.allOrders.forEach(o=>{ if(o.items?.some(i=>i.id===pid)) cnt++; }); return cnt; },
+        getProductSoldQuantity(pid) { let qty=0; this.allOrders.forEach(o=>{ let it=o.items?.find(i=>i.id===pid); if(it) qty+=it.quantity; }); return qty; },
+        getProductRevenue(pid) { let rev=0; this.allOrders.forEach(o=>{ let it=o.items?.find(i=>i.id===pid); if(it) rev+=it.price*it.quantity; }); return rev; },
+        getProductDeliveredCount(pid) { let delivered=0; this.allOrders.forEach(o=>{ if(o.items?.some(i=>i.id===pid) && o.status==='delivered') delivered++; }); return delivered; },
+        getProductOrderProgress(pid) { let total=this.getProductOrderCount(pid); if(total===0) return 0; return Math.round((this.getProductDeliveredCount(pid)/total)*100); },
+        getStatusBadgeClass(status) { return { pending:'status-pending', confirmed:'status-confirmed', shipped:'status-shipped', delivered:'status-delivered', rejected:'status-rejected' }[status] || 'bg-gray-100'; },
+        getOrderBorderClass(status) { return { pending:'border-yellow-400', confirmed:'border-sky-400', shipped:'border-purple-400', delivered:'border-emerald-500', rejected:'border-red-400' }[status] || 'border-gray-200'; },
+        getStatusText(s) { return { pending:'Pending', confirmed:'Confirmed', shipped:'Shipped', delivered:'Delivered', rejected:'Cancelled' }[s]||s; },
+        formatDate(iso) { if(!iso) return 'Just now'; return new Date(iso).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }
+    },
+    mounted() {
+        const saved = localStorage.getItem('shopkeeper_pro');
+        if (saved) {
+            try {
+                this.loggedInShopkeeper = JSON.parse(saved);
+                this.showLoginModal = false;
+                this.startBlockWatcher(this.loggedInShopkeeper.shopName);
+                this.loadData();
+            } catch(e) {}
+        }
+        db.ref('products').on('value', ()=>this.loadProducts());
+        db.ref('orders').on('value', ()=>this.loadOrders());
+    }
+});
+</script>
+</body>
+</html>
