@@ -1581,6 +1581,7 @@ new Vue({
             this.loggedInShopkeeper = { id: cleanShopName, shopName: cleanShopName, mobile: this.loginForm.mobile.trim() };
             localStorage.setItem('shopkeeper_pro', JSON.stringify(this.loggedInShopkeeper));
             this.showLoginModal = false;
+            this.attachFirebaseListeners();
             this.loadData();
             if(Notification.permission !== 'denied') Notification.requestPermission();
             this.showMessage(`Welcome ${cleanShopName}!`);
@@ -1602,6 +1603,7 @@ new Vue({
                 this.loggedInShopkeeper = { ...userData, id: userData.shopName };
                 localStorage.setItem('shopkeeper_pro', JSON.stringify(this.loggedInShopkeeper));
                 this.showLoginModal = false;
+                this.attachFirebaseListeners();
                 this.loadData();
                 this.showMessage('✅ Welcome ' + this.loggedInShopkeeper.shopName + '!');
             } catch(e) {
@@ -1627,7 +1629,29 @@ new Vue({
             } finally { this.forgotPasswordLoading = false; }
         },
         
-        async loadData() { this.globalLoading=true; this.isFirstOrderCheck = true; await Promise.all([this.loadProducts(), this.loadOrders(), this.loadRiders(), this.loadReturnRequests(), this.loadAdminCategories()]); this.globalLoading=false; this.checkNewOrders(); },
+        attachFirebaseListeners() {
+            // Already attached check karo
+            if(this._listenersAttached) return;
+            this._listenersAttached = true;
+            db.ref('products').on('value', () => { if(this.loggedInShopkeeper) this.loadProducts(); });
+            db.ref('orders').on('value', () => { if(this.loggedInShopkeeper) this.loadOrders().then(() => this.checkNewOrders()); });
+            db.ref('riders').on('value', () => { if(this.loggedInShopkeeper) this.loadRiders(); });
+            db.ref('return_requests').on('value', () => { if(this.loggedInShopkeeper) this.loadReturnRequests(); });
+            db.ref('admin_settings/categories').on('value', () => { if(this.loggedInShopkeeper) this.loadAdminCategories(); });
+        },
+        async loadData() {
+            this.globalLoading = true;
+            this.isFirstOrderCheck = true;
+            try {
+                await Promise.all([this.loadProducts(), this.loadOrders(), this.loadRiders(), this.loadReturnRequests(), this.loadAdminCategories()]);
+                this.checkNewOrders();
+            } catch(e) {
+                console.error('loadData error:', e);
+                this.showMessage('❌ Data load mein error. Refresh karein.');
+            } finally {
+                this.globalLoading = false;  // hamesha false hoga, chahe error ho ya nahi
+            }
+        },
         async loadAdminCategories() {
             try {
                 const snap = await db.ref("admin_settings/categories").once("value");
@@ -1958,9 +1982,15 @@ new Vue({
         if(saved) { 
             try { 
                 this.loggedInShopkeeper = JSON.parse(saved); 
-                this.showLoginModal = false; 
+                this.showLoginModal = false;
+                this.attachFirebaseListeners();
                 this.loadData(); 
-            } catch(e){} 
+            } catch(e){
+                // Corrupt localStorage — clear karke login dikhao
+                localStorage.removeItem('shopkeeper_pro');
+                this.showLoginModal = true;
+                this.globalLoading = false;
+            } 
         }
         const notifs = localStorage.getItem('shopkeeper_notifications');
         if(notifs) { 
@@ -1969,16 +1999,18 @@ new Vue({
             } catch(e){} 
         }
         
-        // Firebase Listeners jo automatic updates handle karenge (bina loops ke)
-        db.ref('products').on('value', () => this.loadProducts());
-        db.ref('orders').on('value', () => {
-            this.loadOrders().then(() => {
-                this.checkNewOrders(); // Keval orders update hone par hi check hoga
+        // Firebase Listeners — sirf tab lagao jab user logged in ho
+        if(this.loggedInShopkeeper) {
+            db.ref('products').on('value', () => this.loadProducts());
+            db.ref('orders').on('value', () => {
+                this.loadOrders().then(() => {
+                    this.checkNewOrders();
+                });
             });
-        });
-        db.ref('riders').on('value', () => this.loadRiders());
-        db.ref('return_requests').on('value', () => this.loadReturnRequests());
-        db.ref('admin_settings/categories').on('value', () => this.loadAdminCategories());
+            db.ref('riders').on('value', () => this.loadRiders());
+            db.ref('return_requests').on('value', () => this.loadReturnRequests());
+            db.ref('admin_settings/categories').on('value', () => this.loadAdminCategories());
+        }
         
         // Yahan se setInterval() ko hata diya gaya hai jo auto-increase alert band karega.
 
